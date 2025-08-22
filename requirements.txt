@@ -1,0 +1,25 @@
+# Core data processing
+pandas==2.2.2
+numpy==1.26.4
+
+# Machine Learning
+scikit-learn==1.5.1
+xgboost==2.1.0
+
+# Data visualization (optional but useful)
+matplotlib==3.9.2
+seaborn==0.13.2
+
+# Utilities
+joblib==1.4.2
+tqdm==4.66.5
+
+# Development tools
+ipython==8.26.0
+jupyter==1.0.0
+notebook==7.2.1
+
+# Code quality
+black==24.8.0
+flake8==7.1.1
+mypy==1.11.1
