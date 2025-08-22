@@ -27,18 +27,30 @@ build/
 *.swo
 *~
 
-# Data files (adjust based on your needs)
+# Large data files - exclude database/dataset formats
 *.csv
-!spikehistory/*.csv  # Keep the spike history CSVs
-processed/*.csv
+*.parquet
+*.tsv
+*.xlsx
+*.xls
+*.feather
+*.msgpack
+*.sqlite
+*.db
+*.arrow
+*.orc
+*.avro
+spikehistory/
+processed/
 !processed/.gitkeep
 
-# Model files
-models/*.pkl
-models/*.joblib
-models/*.h5
-models/*.pt
-models/*.pth
+# Model files (keep these in git if needed)
+# Uncomment lines below to exclude saved models:
+# models/*.pkl
+# models/*.joblib
+# models/*.h5
+# models/*.pt
+# models/*.pth
 !models/.gitkeep
 
 # Logs
