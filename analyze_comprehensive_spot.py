@@ -103,13 +103,16 @@ def process_file_comprehensive(file_path):
         
         # Spike detection with multiple thresholds and cooldown
         thresholds = [1.0, 2.0, 4.0]  # 1%, 2%, 4% thresholds
-        spike_counts = {t: 0 for t in thresholds}
-        movement_counts = {t: 0 for t in thresholds}
+        # Track up and down separately
+        spike_up_counts = {t: 0 for t in thresholds}
+        spike_down_counts = {t: 0 for t in thresholds}
+        movement_up_counts = {t: 0 for t in thresholds}
+        movement_down_counts = {t: 0 for t in thresholds}
         
         # Timing configuration (in milliseconds)
-        peak_window_ms = 50  # Find peak/trough within 50ms after trigger
-        classification_wait_ms = 500  # Wait 500ms from trigger to classify
-        cooldown_ms = 1000  # No new detection for 1 second after an event
+        peak_window_ms = 20  # Find peak/trough within 50ms after trigger
+        classification_wait_ms = 100  # Wait 500ms from trigger to classify
+        cooldown_ms = 500  # No new detection for 1 second after an event
         
         # Classification thresholds
         movement_recovery_threshold = 0.4  # Below 40% = movement
@@ -195,12 +198,12 @@ def process_file_comprehensive(file_path):
                             recovery_from_peak = (peak_price - recovery_price) / peak_price * 100
                             recovery_ratio = recovery_from_peak / actual_peak_change if actual_peak_change > 0 else 0
                             
-                            # Classify based on recovery ratio after 1 second
+                            # Classify UPWARD moves based on recovery ratio
                             if recovery_ratio >= spike_recovery_threshold:  # >= 60% recovery
-                                spike_counts[threshold] += 1
+                                spike_up_counts[threshold] += 1  # Upward spike (went up, came back down)
                                 last_event_time = current_time
                             elif recovery_ratio < movement_recovery_threshold:  # < 40% recovery
-                                movement_counts[threshold] += 1
+                                movement_up_counts[threshold] += 1  # Upward movement (went up, stayed up)
                                 last_event_time = current_time
                             # else: 40-60% recovery - neutral, don't count
                                 
@@ -222,12 +225,12 @@ def process_file_comprehensive(file_path):
                             recovery_from_trough = (recovery_price - trough_price) / trough_price * 100
                             recovery_ratio = recovery_from_trough / actual_trough_change if actual_trough_change > 0 else 0
                             
-                            # Classify based on recovery ratio after 1 second
+                            # Classify DOWNWARD moves based on recovery ratio
                             if recovery_ratio >= spike_recovery_threshold:  # >= 60% recovery
-                                spike_counts[threshold] += 1
+                                spike_down_counts[threshold] += 1  # Downward spike (went down, came back up)
                                 last_event_time = current_time
                             elif recovery_ratio < movement_recovery_threshold:  # < 40% recovery
-                                movement_counts[threshold] += 1
+                                movement_down_counts[threshold] += 1  # Downward movement (went down, stayed down)
                                 last_event_time = current_time
                             # else: 40-60% recovery - neutral, don't count
         
@@ -246,8 +249,10 @@ def process_file_comprehensive(file_path):
             'price_range': price_range,
             'mean_reversion': mean_reversion_score,
             'momentum': momentum_score,
-            'spike_counts': spike_counts,
-            'movement_counts': movement_counts
+            'spike_up_counts': spike_up_counts,
+            'spike_down_counts': spike_down_counts,
+            'movement_up_counts': movement_up_counts,
+            'movement_down_counts': movement_down_counts
         }
     except:
         return None
@@ -357,52 +362,51 @@ def main():
     ax2.grid(True, alpha=0.3)
     ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
     
-    # 3. Spike Analysis - 1% Threshold
+    # 3. Spike Analysis - 1% Threshold (Up/Down separated)
     ax3 = plt.subplot(5, 3, 3)
     
     threshold_1 = 1.0
     spike_data_1 = []
     for bucket in bucket_order:
         bucket_data = buckets[bucket]
-        total_spikes = sum(item['spike_counts'][threshold_1] for item in bucket_data)
-        total_movements = sum(item['movement_counts'][threshold_1] for item in bucket_data)
-        total = total_spikes + total_movements
+        spike_up = sum(item['spike_up_counts'][threshold_1] for item in bucket_data)
+        spike_down = sum(item['spike_down_counts'][threshold_1] for item in bucket_data)
+        move_up = sum(item['movement_up_counts'][threshold_1] for item in bucket_data)
+        move_down = sum(item['movement_down_counts'][threshold_1] for item in bucket_data)
         
         spike_data_1.append({
             'bucket': bucket.split('. ')[1],
-            'spike_ratio': total_spikes / total * 100 if total > 0 else 0,
-            'total_spikes': total_spikes,
-            'total_movements': total_movements
+            'spike_up': spike_up,
+            'spike_down': spike_down,
+            'move_up': move_up,
+            'move_down': move_down,
+            'total': spike_up + spike_down + move_up + move_down
         })
     
     x = np.arange(len(spike_data_1))
-    width = 0.35
+    width = 0.7
     
-    bars1 = ax3.bar(x - width/2, [d['spike_ratio'] for d in spike_data_1], width, 
-                    label='Spikes', color='red', alpha=0.7)
-    bars2 = ax3.bar(x + width/2, [100 - d['spike_ratio'] for d in spike_data_1], width,
-                    label='Movements', color='blue', alpha=0.7)
+    # Stack bars for spikes and movements
+    spike_up_vals = [d['spike_up'] for d in spike_data_1]
+    spike_down_vals = [d['spike_down'] for d in spike_data_1]
+    move_up_vals = [d['move_up'] for d in spike_data_1]
+    move_down_vals = [d['move_down'] for d in spike_data_1]
     
-    for bar, data in zip(bars1, spike_data_1):
-        height = bar.get_height()
-        if height > 0:
-            ax3.text(bar.get_x() + bar.get_width()/2., height/2,
-                    f'{data["total_spikes"]:,}\n({height:.1f}%)', 
-                    ha='center', va='center', fontsize=7, color='white', weight='bold')
-    
-    for bar, data in zip(bars2, spike_data_1):
-        height = bar.get_height()
-        if height > 0:
-            ax3.text(bar.get_x() + bar.get_width()/2., height/2,
-                    f'{data["total_movements"]:,}\n({height:.1f}%)', 
-                    ha='center', va='center', fontsize=7, color='white', weight='bold')
+    # Create stacked bars
+    bars1 = ax3.bar(x, spike_up_vals, width, label='Spike Up', color='lightgreen', alpha=0.8)
+    bars2 = ax3.bar(x, spike_down_vals, width, bottom=spike_up_vals, label='Spike Down', color='lightcoral', alpha=0.8)
+    bars3 = ax3.bar(x, move_up_vals, width, bottom=np.array(spike_up_vals) + np.array(spike_down_vals), 
+                    label='Move Up', color='darkgreen', alpha=0.8)
+    bars4 = ax3.bar(x, move_down_vals, width, 
+                    bottom=np.array(spike_up_vals) + np.array(spike_down_vals) + np.array(move_up_vals),
+                    label='Move Down', color='darkred', alpha=0.8)
     
     ax3.set_xlabel('Market Cap Bucket', fontsize=10)
-    ax3.set_ylabel('Percentage (%)', fontsize=10)
-    ax3.set_title(f'Spikes vs Movements (1% Threshold)', fontsize=12, fontweight='bold')
+    ax3.set_ylabel('Count', fontsize=10)
+    ax3.set_title(f'Up/Down Spikes vs Movements (1% Threshold)', fontsize=12, fontweight='bold')
     ax3.set_xticks(x)
     ax3.set_xticklabels([d['bucket'] for d in spike_data_1], rotation=45, ha='right')
-    ax3.legend(fontsize=8)
+    ax3.legend(fontsize=7, loc='upper right')
     ax3.grid(True, alpha=0.3, axis='y')
     
     # 4. Price Movement Direction Analysis
@@ -446,100 +450,98 @@ def main():
     ax4.legend(fontsize=8)
     ax4.grid(True, alpha=0.3, axis='y')
     
-    # 5. Spike Analysis - 2% Threshold
+    # 5. Spike Analysis - 2% Threshold (Up/Down separated)
     ax5 = plt.subplot(5, 3, 5)
     
     threshold_2 = 2.0
     spike_data_2 = []
     for bucket in bucket_order:
         bucket_data = buckets[bucket]
-        total_spikes = sum(item['spike_counts'][threshold_2] for item in bucket_data)
-        total_movements = sum(item['movement_counts'][threshold_2] for item in bucket_data)
-        total = total_spikes + total_movements
+        spike_up = sum(item['spike_up_counts'][threshold_2] for item in bucket_data)
+        spike_down = sum(item['spike_down_counts'][threshold_2] for item in bucket_data)
+        move_up = sum(item['movement_up_counts'][threshold_2] for item in bucket_data)
+        move_down = sum(item['movement_down_counts'][threshold_2] for item in bucket_data)
         
         spike_data_2.append({
             'bucket': bucket.split('. ')[1],
-            'spike_ratio': total_spikes / total * 100 if total > 0 else 0,
-            'total_spikes': total_spikes,
-            'total_movements': total_movements
+            'spike_up': spike_up,
+            'spike_down': spike_down,
+            'move_up': move_up,
+            'move_down': move_down,
+            'total': spike_up + spike_down + move_up + move_down
         })
     
     x = np.arange(len(spike_data_2))
-    width = 0.35
+    width = 0.7
     
-    bars1 = ax5.bar(x - width/2, [d['spike_ratio'] for d in spike_data_2], width, 
-                    label='Spikes', color='orange', alpha=0.7)
-    bars2 = ax5.bar(x + width/2, [100 - d['spike_ratio'] for d in spike_data_2], width,
-                    label='Movements', color='green', alpha=0.7)
+    # Stack bars for spikes and movements
+    spike_up_vals = [d['spike_up'] for d in spike_data_2]
+    spike_down_vals = [d['spike_down'] for d in spike_data_2]
+    move_up_vals = [d['move_up'] for d in spike_data_2]
+    move_down_vals = [d['move_down'] for d in spike_data_2]
     
-    for bar, data in zip(bars1, spike_data_2):
-        height = bar.get_height()
-        if height > 0:
-            ax5.text(bar.get_x() + bar.get_width()/2., height/2,
-                    f'{data["total_spikes"]:,}\n({height:.1f}%)', 
-                    ha='center', va='center', fontsize=7, color='white', weight='bold')
-    
-    for bar, data in zip(bars2, spike_data_2):
-        height = bar.get_height()
-        if height > 0:
-            ax5.text(bar.get_x() + bar.get_width()/2., height/2,
-                    f'{data["total_movements"]:,}\n({height:.1f}%)', 
-                    ha='center', va='center', fontsize=7, color='white', weight='bold')
+    # Create stacked bars
+    bars1 = ax5.bar(x, spike_up_vals, width, label='Spike Up', color='lightgreen', alpha=0.8)
+    bars2 = ax5.bar(x, spike_down_vals, width, bottom=spike_up_vals, label='Spike Down', color='lightcoral', alpha=0.8)
+    bars3 = ax5.bar(x, move_up_vals, width, bottom=np.array(spike_up_vals) + np.array(spike_down_vals), 
+                    label='Move Up', color='darkgreen', alpha=0.8)
+    bars4 = ax5.bar(x, move_down_vals, width, 
+                    bottom=np.array(spike_up_vals) + np.array(spike_down_vals) + np.array(move_up_vals),
+                    label='Move Down', color='darkred', alpha=0.8)
     
     ax5.set_xlabel('Market Cap Bucket', fontsize=10)
-    ax5.set_ylabel('Percentage (%)', fontsize=10)
-    ax5.set_title(f'Spikes vs Movements (2% Threshold)', fontsize=12, fontweight='bold')
+    ax5.set_ylabel('Count', fontsize=10)
+    ax5.set_title(f'Up/Down Spikes vs Movements (2% Threshold)', fontsize=12, fontweight='bold')
     ax5.set_xticks(x)
     ax5.set_xticklabels([d['bucket'] for d in spike_data_2], rotation=45, ha='right')
-    ax5.legend(fontsize=8)
+    ax5.legend(fontsize=7, loc='upper right')
     ax5.grid(True, alpha=0.3, axis='y')
     
-    # 6. Spike Analysis - 4% Threshold  
+    # 6. Spike Analysis - 4% Threshold (Up/Down separated) 
     ax6 = plt.subplot(5, 3, 6)
     
     threshold_4 = 4.0
     spike_data_4 = []
     for bucket in bucket_order:
         bucket_data = buckets[bucket]
-        total_spikes = sum(item['spike_counts'][threshold_4] for item in bucket_data)
-        total_movements = sum(item['movement_counts'][threshold_4] for item in bucket_data)
-        total = total_spikes + total_movements
+        spike_up = sum(item['spike_up_counts'][threshold_4] for item in bucket_data)
+        spike_down = sum(item['spike_down_counts'][threshold_4] for item in bucket_data)
+        move_up = sum(item['movement_up_counts'][threshold_4] for item in bucket_data)
+        move_down = sum(item['movement_down_counts'][threshold_4] for item in bucket_data)
         
         spike_data_4.append({
             'bucket': bucket.split('. ')[1],
-            'spike_ratio': total_spikes / total * 100 if total > 0 else 0,
-            'total_spikes': total_spikes,
-            'total_movements': total_movements
+            'spike_up': spike_up,
+            'spike_down': spike_down,
+            'move_up': move_up,
+            'move_down': move_down,
+            'total': spike_up + spike_down + move_up + move_down
         })
     
     x = np.arange(len(spike_data_4))
-    width = 0.35
+    width = 0.7
     
-    bars1 = ax6.bar(x - width/2, [d['spike_ratio'] for d in spike_data_4], width, 
-                    label='Spikes', color='purple', alpha=0.7)
-    bars2 = ax6.bar(x + width/2, [100 - d['spike_ratio'] for d in spike_data_4], width,
-                    label='Movements', color='cyan', alpha=0.7)
+    # Stack bars for spikes and movements
+    spike_up_vals = [d['spike_up'] for d in spike_data_4]
+    spike_down_vals = [d['spike_down'] for d in spike_data_4]
+    move_up_vals = [d['move_up'] for d in spike_data_4]
+    move_down_vals = [d['move_down'] for d in spike_data_4]
     
-    for bar, data in zip(bars1, spike_data_4):
-        height = bar.get_height()
-        if height > 0:
-            ax6.text(bar.get_x() + bar.get_width()/2., height/2,
-                    f'{data["total_spikes"]:,}\n({height:.1f}%)', 
-                    ha='center', va='center', fontsize=7, color='white', weight='bold')
-    
-    for bar, data in zip(bars2, spike_data_4):
-        height = bar.get_height()
-        if height > 0:
-            ax6.text(bar.get_x() + bar.get_width()/2., height/2,
-                    f'{data["total_movements"]:,}\n({height:.1f}%)', 
-                    ha='center', va='center', fontsize=7, color='white', weight='bold')
+    # Create stacked bars
+    bars1 = ax6.bar(x, spike_up_vals, width, label='Spike Up', color='lightgreen', alpha=0.8)
+    bars2 = ax6.bar(x, spike_down_vals, width, bottom=spike_up_vals, label='Spike Down', color='lightcoral', alpha=0.8)
+    bars3 = ax6.bar(x, move_up_vals, width, bottom=np.array(spike_up_vals) + np.array(spike_down_vals), 
+                    label='Move Up', color='darkgreen', alpha=0.8)
+    bars4 = ax6.bar(x, move_down_vals, width, 
+                    bottom=np.array(spike_up_vals) + np.array(spike_down_vals) + np.array(move_up_vals),
+                    label='Move Down', color='darkred', alpha=0.8)
     
     ax6.set_xlabel('Market Cap Bucket', fontsize=10)
-    ax6.set_ylabel('Percentage (%)', fontsize=10)
-    ax6.set_title(f'Spikes vs Movements (4% Threshold)', fontsize=12, fontweight='bold')
+    ax6.set_ylabel('Count', fontsize=10)
+    ax6.set_title(f'Up/Down Spikes vs Movements (4% Threshold)', fontsize=12, fontweight='bold')
     ax6.set_xticks(x)
     ax6.set_xticklabels([d['bucket'] for d in spike_data_4], rotation=45, ha='right')
-    ax6.legend(fontsize=8)
+    ax6.legend(fontsize=7, loc='upper right')
     ax6.grid(True, alpha=0.3, axis='y')
     
     # 7. Intraday Volatility Pattern
@@ -668,12 +670,20 @@ def main():
         all_data.extend(bucket_data)
     
     # Aggregate spike data for all thresholds
-    spike_stats_1 = sum(d['spike_counts'][1.0] for d in all_data)
-    movement_stats_1 = sum(d['movement_counts'][1.0] for d in all_data)
-    spike_stats_2 = sum(d['spike_counts'][2.0] for d in all_data)
-    movement_stats_2 = sum(d['movement_counts'][2.0] for d in all_data)
-    spike_stats_4 = sum(d['spike_counts'][4.0] for d in all_data)
-    movement_stats_4 = sum(d['movement_counts'][4.0] for d in all_data)
+    spike_up_1 = sum(d['spike_up_counts'][1.0] for d in all_data)
+    spike_down_1 = sum(d['spike_down_counts'][1.0] for d in all_data)
+    move_up_1 = sum(d['movement_up_counts'][1.0] for d in all_data)
+    move_down_1 = sum(d['movement_down_counts'][1.0] for d in all_data)
+    
+    spike_up_2 = sum(d['spike_up_counts'][2.0] for d in all_data)
+    spike_down_2 = sum(d['spike_down_counts'][2.0] for d in all_data)
+    move_up_2 = sum(d['movement_up_counts'][2.0] for d in all_data)
+    move_down_2 = sum(d['movement_down_counts'][2.0] for d in all_data)
+    
+    spike_up_4 = sum(d['spike_up_counts'][4.0] for d in all_data)
+    spike_down_4 = sum(d['spike_down_counts'][4.0] for d in all_data)
+    move_up_4 = sum(d['movement_up_counts'][4.0] for d in all_data)
+    move_down_4 = sum(d['movement_down_counts'][4.0] for d in all_data)
     
     stats_text = (
         f"Overall Statistics:\n"
@@ -684,9 +694,9 @@ def main():
         f"Avg Returns Std: {np.mean([d['returns_std'] for d in all_data]):.2f}%\n"
         f"Avg Price Range: {np.mean([d['price_range'] for d in all_data]):.2f}%\n"
         f"\nSpike Analysis:\n"
-        f"1% Threshold: {spike_stats_1:,}S / {movement_stats_1:,}M\n"
-        f"2% Threshold: {spike_stats_2:,}S / {movement_stats_2:,}M\n"
-        f"4% Threshold: {spike_stats_4:,}S / {movement_stats_4:,}M\n"
+        f"1% Threshold: ↑{spike_up_1+move_up_1:,} ↓{spike_down_1+move_down_1:,}\n"
+        f"2% Threshold: ↑{spike_up_2+move_up_2:,} ↓{spike_down_2+move_down_2:,}\n"
+        f"4% Threshold: ↑{spike_up_4+move_up_4:,} ↓{spike_down_4+move_down_4:,}\n"
         f"\nMarket Cap Range:\n"
         f"Min: ${min(d['marketcap_millions'] for d in all_data):.2f}M\n"
         f"Max: ${max(d['marketcap_millions'] for d in all_data):.2f}M"
