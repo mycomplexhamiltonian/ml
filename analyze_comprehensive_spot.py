@@ -15,16 +15,20 @@ import time
 PARQUET_DIR = Path('/home/yahweh/code/ml/processed/parquet')
 
 def extract_marketcap_from_filename(filename):
-    """Extract market cap from filename"""
+    """Extract market cap from filename
+    Spot format: SYMBOL_SPOT_MKTCAP_12345678_timestamp.parquet
+    Market cap is at position 3 for spot files
+    """
     if hasattr(filename, 'stem'):
         name = filename.stem
     else:
         name = str(filename).replace('.parquet', '')
     
     parts = name.split('_')
-    if len(parts) >= 4:
+    # For SPOT files, market cap is at position 3 (after SYMBOL_SPOT_MKTCAP)
+    if len(parts) >= 5 and 'SPOT' in parts:
         try:
-            return int(parts[2])
+            return int(parts[3])  # Position 3 for spot files
         except:
             return 0
     return 0
