@@ -12,12 +12,15 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
 import time
 
+# Market selection: 'spot', 'futures', or 'both'
+MARKET_TYPE = 'futures'  # Change this to 'futures' or 'both' as needed
+
 PARQUET_DIR = Path('/home/yahweh/code/ml/processed/parquet')
 
 def extract_marketcap_from_filename(filename):
     """Extract market cap from filename
     Spot format: SYMBOL_SPOT_MKTCAP_12345678_timestamp.parquet
-    Market cap is at position 3 for spot files
+    Futures format: SYMBOL_MKTCAP_12345678_timestamp.parquet
     """
     if hasattr(filename, 'stem'):
         name = filename.stem
@@ -25,12 +28,22 @@ def extract_marketcap_from_filename(filename):
         name = str(filename).replace('.parquet', '')
     
     parts = name.split('_')
-    # For SPOT files, market cap is at position 3 (after SYMBOL_SPOT_MKTCAP)
-    if len(parts) >= 5 and 'SPOT' in parts:
-        try:
-            return int(parts[3])  # Position 3 for spot files
-        except:
-            return 0
+    
+    # Check if SPOT file
+    if 'SPOT' in parts:
+        # For SPOT files, market cap is at position 3
+        if len(parts) >= 5:
+            try:
+                return int(parts[3])
+            except:
+                return 0
+    else:
+        # For futures files, market cap is at position 2
+        if len(parts) >= 4:
+            try:
+                return int(parts[2])
+            except:
+                return 0
     return 0
 
 def get_marketcap_bucket(marketcap):
@@ -291,15 +304,27 @@ def process_all_parallel(parquet_files):
 def main():
     start_time = time.time()
     
-    print("="*60)
-    print("SPOT MARKET ANALYSIS WITH MARKET CAP BUCKETING")
-    print("="*60)
-    
-    # Load and process only SPOT files (check filename for _SPOT_)
+    # Filter files based on market type
     all_files = list(PARQUET_DIR.glob('*.parquet'))
-    parquet_files = [f for f in all_files if '_SPOT_' in f.name]
     
-    print(f"\nProcessing all {len(parquet_files):,} files...")
+    if MARKET_TYPE == 'spot':
+        parquet_files = [f for f in all_files if '_SPOT_' in f.name]
+        title = "SPOT MARKET ANALYSIS WITH MARKET CAP BUCKETING"
+        output_file = 'comprehensive_analysis_spot.png'
+    elif MARKET_TYPE == 'futures':
+        parquet_files = [f for f in all_files if '_SPOT_' not in f.name]
+        title = "FUTURES MARKET ANALYSIS WITH MARKET CAP BUCKETING"
+        output_file = 'comprehensive_analysis_futures.png'
+    else:  # both
+        parquet_files = all_files
+        title = "COMBINED MARKET ANALYSIS WITH MARKET CAP BUCKETING"
+        output_file = 'comprehensive_analysis_combined.png'
+    
+    print("="*60)
+    print(title)
+    print("="*60)
+    
+    print(f"\nProcessing {len(parquet_files):,} files...")
     results = process_all_parallel(parquet_files)
     
     if not results:
@@ -706,11 +731,18 @@ def main():
     fig.text(0.85, 0.25, stats_text, transform=fig.transFigure, fontsize=9,
              verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
     
-    plt.suptitle('SPOT Market Analysis by Market Cap', fontsize=18, fontweight='bold', y=0.98)
+    # Set title based on market type
+    if MARKET_TYPE == 'spot':
+        fig_title = 'SPOT Market Analysis by Market Cap'
+    elif MARKET_TYPE == 'futures':
+        fig_title = 'FUTURES Market Analysis by Market Cap'
+    else:
+        fig_title = 'Combined Market Analysis by Market Cap'
+    
+    plt.suptitle(fig_title, fontsize=18, fontweight='bold', y=0.98)
     plt.tight_layout()
     
-    # Save
-    output_file = 'comprehensive_analysis_spot.png'
+    # Save with appropriate filename
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"\n✓ Saved as '{output_file}'")
     print(f"Total time: {time.time() - start_time:.1f} seconds")
